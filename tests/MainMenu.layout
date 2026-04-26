@@ -1,0 +1,6 @@
+VBox
++ valign=centre padding=(8, 24) (Image text="Main Menu")
++ valign=fill (VBox
+	+ halign=left (Image items=[4, 1, 7, 3])
+	+ halign=right (Image)
+)

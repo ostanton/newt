@@ -1,0 +1,31 @@
+# This file is the body of a class using the base file name as its class name
+# It has similarities with GDscript
+
+# constant (::) like Odin
+is_debug : bool : Game.buildMode() == Game.BuildMode.debug
+timer : float
+some_bool : bool = false
+
+# Tick override
+tick :: func(dt: float) {
+	timer += dt
+}
+
+# These would get bound via the button widget's "clicked" property:
+# +(Button clicked="startNewGame")
+startNewGame :: func() {
+	target_level : string = "Level_First"
+	if is_debug {
+		target_level = level_combo.selectedItem()
+	}
+
+	Game.openLevel(target_level)
+}
+
+openLoadSaveMenu :: func() {
+	Game.Viewport.addWidget(LoadSaveMenu)
+}
+
+openSettingsMenu :: func() {
+	Game.Viewport.addWidget(SettingsMenu)
+}
