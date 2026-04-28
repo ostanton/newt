@@ -1,5 +1,4 @@
 /// Layout DSL parsing
-
 const std = @import("std");
 
 pub const TokenKind = enum {
@@ -326,38 +325,37 @@ pub const ast = struct {
     };
 
     pub fn writeWidget(writer: *std.Io.Writer, widget: Widget) !void {
-        var ast_writer: Writer = .{ .writer = writer, .indent_level = 0 };
+        var ast_writer: Writer = .{
+            .writer = writer,
+            .indent_level = 0,
+            .indent_amount = 4,
+        };
         try ast_writer.writeWidget(widget);
     }
 
     const Writer = struct {
         writer: *std.Io.Writer,
         indent_level: usize,
+        indent_amount: usize,
 
         fn writeIndent(self: Writer) std.Io.Writer.Error!void {
-            for (0..self.indent_level) |_| {
-                try self.writer.writeAll("  ");
+            for (0..self.indent_level * self.indent_amount) |_| {
+                try self.writer.writeByte(' ');
             }
         }
 
         fn writeWidget(self: *Writer, widget: Widget) std.Io.Writer.Error!void {
-            try self.writeIndent();
-            try self.writer.print("name: {s}\n", .{widget.name});
+            try self.writer.print("{s}", .{widget.name});
 
             if (widget.properties) |props| {
-                self.indent_level += 1;
-                try self.writeIndent();
-                try self.writer.writeAll("properties:\n");
-                self.indent_level += 1;
-                for (props, 0..) |prop, i| {
-                    try self.writeIndent();
-                    try self.writer.print("[{}] ", .{i});
+                for (props) |prop| {
+                    try self.writer.writeByte(' ');
                     try self.writeProperty(prop);
                 }
-                self.indent_level -= 2;
             }
 
             if (widget.slots) |slots| {
+                try self.writer.writeByte('\n');
                 for (slots) |slot| {
                     try self.writeSlot(slot);
                 }
@@ -365,9 +363,8 @@ pub const ast = struct {
         }
 
         fn writeProperty(self: *Writer, prop: Property) std.Io.Writer.Error!void {
-            try self.writer.print("{s} = ", .{prop.key});
+            try self.writer.print("{s}=", .{prop.key});
             try self.writePropertyValue(prop.value);
-            try self.writer.writeByte('\n');
         }
 
         fn writePropertyValue(self: *Writer, value: Property.Value) std.Io.Writer.Error!void {
@@ -430,26 +427,20 @@ pub const ast = struct {
 
         fn writeSlot(self: *Writer, slot: Slot) std.Io.Writer.Error!void {
             try self.writeIndent();
-            try self.writer.writeAll("slot:\n");
-            self.indent_level += 1;
+            try self.writer.writeAll("+ ");
 
             if (slot.properties) |props| {
-                try self.writeIndent();
-                try self.writer.writeAll("properties:\n");
-                self.indent_level += 1;
-                for (props, 0..) |prop, i| {
-                    try self.writeIndent();
-                    try self.writer.print("[{}] ", .{i});
+                for (props) |prop| {
                     try self.writeProperty(prop);
+                    try self.writer.writeByte(' ');
                 }
-                self.indent_level -= 1;
             }
 
-            try self.writeIndent();
-            try self.writer.writeAll("widget:\n");
             self.indent_level += 1;
+            try self.writer.writeByte('(');
             try self.writeWidget(slot.widget);
-            self.indent_level -= 2;
+            try self.writer.writeAll(")\n");
+            self.indent_level -= 1;
         }
     };
 };
