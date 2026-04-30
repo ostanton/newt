@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init) !void {
 
 fn parseLayout(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
     std.debug.print("Layout path: {s}\n", .{path});
-    const root = try newt.layout.parseFile(
+    var root = try newt.layout.parseFile(
         allocator,
         io,
         try std.Io.Dir.cwd().openFile(io, path, .{}),

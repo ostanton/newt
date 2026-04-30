@@ -73,7 +73,7 @@ pub const Lexer = struct {
             else => {},
         }
 
-        if (std.ascii.isDigit(char)) {
+        if (std.ascii.isDigit(char) or char == '-') {
             return self.readNumberLit();
         } else {
             return self.readIdent();
@@ -172,6 +172,11 @@ pub const Lexer = struct {
         const start = self.pos;
         const start_col = self.column;
 
+        if (self.src[self.pos] == '-') {
+            self.pos += 1;
+            self.column += 1;
+        }
+
         while (self.pos < self.src.len and std.ascii.isDigit(self.src[self.pos])) {
             self.pos += 1;
             self.column += 1;
@@ -240,45 +245,45 @@ pub const ast = struct {
             string: []u8,
             ident: []u8,
             array: Array,
-            tuple: []Value,
+            tuple: std.ArrayList(Value),
 
             const Array = union(enum) {
-                bool: []bool,
-                float: []f32,
-                int: []i32,
-                string: [][]u8,
+                bool: std.ArrayList(bool),
+                float: std.ArrayList(f32),
+                int: std.ArrayList(i32),
+                string: std.ArrayList([]u8),
 
-                pub fn deinit(self: Array, allocator: std.mem.Allocator) void {
-                    switch (self) {
-                        .bool => |b| allocator.free(b),
-                        .float => |f| allocator.free(f),
-                        .int => |i| allocator.free(i),
-                        .string => |s| {
-                            for (s) |string| {
+                pub fn deinit(self: *Array, allocator: std.mem.Allocator) void {
+                    switch (self.*) {
+                        .bool => |*b| b.deinit(allocator),
+                        .float => |*f| f.deinit(allocator),
+                        .int => |*i| i.deinit(allocator),
+                        .string => |*s| {
+                            for (s.items) |string| {
                                 allocator.free(string);
                             }
-                            allocator.free(s);
+                            s.deinit(allocator);
                         },
                     }
                 }
             };
 
-            pub fn deinit(self: Value, allocator: std.mem.Allocator) void {
-                switch (self) {
+            pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
+                switch (self.*) {
                     .string, .ident => |s| allocator.free(s),
-                    .array => |a| a.deinit(allocator),
-                    .tuple => |t| {
-                        for (t) |value| {
+                    .array => |*a| a.deinit(allocator),
+                    .tuple => |*t| {
+                        for (t.items) |*value| {
                             value.deinit(allocator);
                         }
-                        allocator.free(t);
+                        t.deinit(allocator);
                     },
                     else => {},
                 }
             }
         };
 
-        pub fn deinit(self: Property, allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *Property, allocator: std.mem.Allocator) void {
             allocator.free(self.key);
             self.value.deinit(allocator);
         }
@@ -286,39 +291,33 @@ pub const ast = struct {
 
     pub const Widget = struct {
         name: []u8,
-        properties: ?[]Property,
-        slots: ?[]Slot,
+        properties: std.ArrayList(Property),
+        slots: std.ArrayList(Slot),
 
-        pub fn deinit(self: Widget, allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *Widget, allocator: std.mem.Allocator) void {
             allocator.free(self.name);
 
-            if (self.properties) |props| {
-                for (props) |prop| {
-                    prop.deinit(allocator);
-                }
-                allocator.free(props);
+            for (self.properties.items) |*prop| {
+                prop.deinit(allocator);
             }
+            self.properties.deinit(allocator);
 
-            if (self.slots) |slots| {
-                for (slots) |slot| {
-                    slot.deinit(allocator);
-                }
-                allocator.free(slots);
+            for (self.slots.items) |*slot| {
+                slot.deinit(allocator);
             }
+            self.slots.deinit(allocator);
         }
     };
 
     pub const Slot = struct {
-        properties: ?[]Property,
+        properties: std.ArrayList(Property),
         widget: Widget,
 
-        pub fn deinit(self: Slot, allocator: std.mem.Allocator) void {
-            if (self.properties) |props| {
-                for (props) |prop| {
-                    prop.deinit(allocator);
-                }
-                allocator.free(props);
+        pub fn deinit(self: *Slot, allocator: std.mem.Allocator) void {
+            for (self.properties.items) |*prop| {
+                prop.deinit(allocator);
             }
+            self.properties.deinit(allocator);
 
             self.widget.deinit(allocator);
         }
@@ -347,16 +346,14 @@ pub const ast = struct {
         fn writeWidget(self: *Writer, widget: Widget) std.Io.Writer.Error!void {
             try self.writer.print("{s}", .{widget.name});
 
-            if (widget.properties) |props| {
-                for (props) |prop| {
-                    try self.writer.writeByte(' ');
-                    try self.writeProperty(prop);
-                }
+            for (widget.properties.items) |prop| {
+                try self.writer.writeByte(' ');
+                try self.writeProperty(prop);
             }
 
-            if (widget.slots) |slots| {
+            if (widget.slots.items.len > 0) {
                 try self.writer.writeByte('\n');
-                for (slots) |slot| {
+                for (widget.slots.items) |slot| {
                     try self.writeSlot(slot);
                 }
             }
@@ -378,33 +375,33 @@ pub const ast = struct {
                     try self.writer.writeByte('[');
                     switch (a) {
                         .bool => |b| {
-                            for (b, 0..) |v, i| {
+                            for (b.items, 0..) |v, i| {
                                 try self.writer.print("{}", .{v});
-                                if (i + 1 < b.len) {
+                                if (i + 1 < b.items.len) {
                                     try self.writer.writeAll(", ");
                                 }
                             }
                         },
                         .float => |f| {
-                            for (f, 0..) |v, i| {
+                            for (f.items, 0..) |v, i| {
                                 try self.writer.print("{}", .{v});
-                                if (i + 1 < f.len) {
+                                if (i + 1 < f.items.len) {
                                     try self.writer.writeAll(", ");
                                 }
                             }
                         },
                         .int => |i| {
-                            for (i, 0..) |v, j| {
+                            for (i.items, 0..) |v, j| {
                                 try self.writer.print("{}", .{v});
-                                if (j + 1 < i.len) {
+                                if (j + 1 < i.items.len) {
                                     try self.writer.writeAll(", ");
                                 }
                             }
                         },
                         .string => |s| {
-                            for (s, 0..) |v, i| {
+                            for (s.items, 0..) |v, i| {
                                 try self.writer.print("\"{s}\"", .{v});
-                                if (i + 1 < s.len) {
+                                if (i + 1 < s.items.len) {
                                     try self.writer.writeAll(", ");
                                 }
                             }
@@ -414,9 +411,9 @@ pub const ast = struct {
                 },
                 .tuple => |t| {
                     try self.writer.writeByte('(');
-                    for (t, 0..) |v, i| {
+                    for (t.items, 0..) |v, i| {
                         try self.writePropertyValue(v);
-                        if (i + 1 < t.len) {
+                        if (i + 1 < t.items.len) {
                             try self.writer.writeAll(", ");
                         }
                     }
@@ -429,11 +426,9 @@ pub const ast = struct {
             try self.writeIndent();
             try self.writer.writeAll("+ ");
 
-            if (slot.properties) |props| {
-                for (props) |prop| {
-                    try self.writeProperty(prop);
-                    try self.writer.writeByte(' ');
-                }
+            for (slot.properties.items) |prop| {
+                try self.writeProperty(prop);
+                try self.writer.writeByte(' ');
             }
 
             self.indent_level += 1;
@@ -503,7 +498,7 @@ pub const Parser = struct {
 
         var props_arr: std.ArrayList(ast.Property) = .empty;
         errdefer {
-            for (props_arr.items) |prop| {
+            for (props_arr.items) |*prop| {
                 prop.deinit(self.allocator);
             }
             props_arr.deinit(self.allocator);
@@ -515,7 +510,7 @@ pub const Parser = struct {
 
         var slots_arr: std.ArrayList(ast.Slot) = .empty;
         errdefer {
-            for (slots_arr.items) |slot| {
+            for (slots_arr.items) |*slot| {
                 slot.deinit(self.allocator);
             }
             slots_arr.deinit(self.allocator);
@@ -526,15 +521,15 @@ pub const Parser = struct {
 
         return .{
             .name = name,
-            .properties = if (props_arr.items.len > 0) try props_arr.toOwnedSlice(self.allocator) else null,
-            .slots = if (slots_arr.items.len > 0) try slots_arr.toOwnedSlice(self.allocator) else null,
+            .properties = props_arr,
+            .slots = slots_arr,
         };
     }
 
     fn parseSlot(self: *Self) ParseError!ast.Slot {
         var props_arr: std.ArrayList(ast.Property) = .empty;
         errdefer {
-            for (props_arr.items) |prop| {
+            for (props_arr.items) |*prop| {
                 prop.deinit(self.allocator);
             }
             props_arr.deinit(self.allocator);
@@ -544,12 +539,12 @@ pub const Parser = struct {
         }
 
         try self.expect(.left_bracket);
-        const widget = try self.parseWidget();
+        var widget = try self.parseWidget();
         errdefer widget.deinit(self.allocator);
         try self.expect(.right_bracket);
 
         return .{
-            .properties = if (props_arr.items.len > 0) try props_arr.toOwnedSlice(self.allocator) else null,
+            .properties = props_arr,
             .widget = widget,
         };
     }
@@ -586,7 +581,7 @@ pub const Parser = struct {
                 self.advance();
                 var values: std.ArrayList(ast.Property.Value) = .empty;
                 errdefer {
-                    for (values.items) |v| {
+                    for (values.items) |*v| {
                         v.deinit(self.allocator);
                     }
                     values.deinit(self.allocator);
@@ -598,7 +593,7 @@ pub const Parser = struct {
                     }
                 }
                 try self.expect(.right_bracket);
-                return .{ .tuple = try values.toOwnedSlice(self.allocator) };
+                return .{ .tuple = values };
             },
             .left_square => {
                 self.advance();
@@ -673,10 +668,10 @@ pub const Parser = struct {
 
         try self.expect(.right_square);
         return switch (dyn_arr) {
-            .bool => |*b| .{ .bool = try b.toOwnedSlice(self.allocator) },
-            .float => |*f| .{ .float = try f.toOwnedSlice(self.allocator) },
-            .int => |*i| .{ .int = try i.toOwnedSlice(self.allocator) },
-            .string => |*s| .{ .string = try s.toOwnedSlice(self.allocator) },
+            .bool => |b| .{ .bool = b },
+            .float => |f| .{ .float = f },
+            .int => |i| .{ .int = i },
+            .string => |s| .{ .string = s },
         };
     }
 
