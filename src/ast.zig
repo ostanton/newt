@@ -244,6 +244,7 @@ pub const VarDecl = struct {
     ident: []const u8,
     type: ?[]const u8,
     value: Expression,
+    constant: bool,
 
     pub fn deinit(self: VarDecl, allocator: std.mem.Allocator) void {
         self.value.deinit(allocator);
@@ -253,7 +254,7 @@ pub const VarDecl = struct {
 pub const FuncDecl = struct {
     ident: []const u8,
     params: ?[]Param,
-    return_type: []const u8,
+    return_type: ?[]const u8,
     body: ?[]Statement,
 
     pub const Param = struct {
@@ -276,35 +277,88 @@ pub const FuncDecl = struct {
 
 pub const ClassDecl = struct {
     ident: []const u8,
-    vars: ?[]VarDecl,
-    funcs: ?[]FuncDecl,
+    decls: ?[]Declaration,
 
     pub fn deinit(self: ClassDecl, allocator: std.mem.Allocator) void {
-        if (self.vars) |vars| {
-            for (vars) |v| {
-                v.deinit(allocator);
+        if (self.decls) |decls| {
+            for (decls) |d| {
+                d.deinit(allocator);
             }
-            allocator.free(vars);
+            allocator.free(decls);
         }
-        if (self.funcs) |funcs| {
-            for (funcs) |func| {
-                func.deinit(allocator);
+    }
+};
+
+pub const Declaration = union(enum) {
+    var_decl: VarDecl,
+    func_decl: FuncDecl,
+    class_decl: ClassDecl,
+
+    pub fn deinit(self: Declaration, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .var_decl => |v| v.deinit(allocator),
+            .func_decl => |f| f.deinit(allocator),
+            .class_decl => |c| c.deinit(allocator),
+        }
+    }
+};
+
+pub const If = struct {
+    cond: Expression,
+    then_body: ?[]Statement,
+    elifs: ?[]Elif,
+    else_body: ?[]Statement,
+
+    pub const Elif = struct {
+        cond: Expression,
+        body: ?[]Statement,
+
+        pub fn deinit(self: Elif, allocator: std.mem.Allocator) void {
+            self.cond.deinit(allocator);
+            if (self.body) |body| {
+                for (body) |stmt| {
+                    stmt.deinit(allocator);
+                }
+                allocator.free(body);
             }
-            allocator.free(funcs);
+        }
+    };
+
+    pub fn deinit(self: If, allocator: std.mem.Allocator) void {
+        self.cond.deinit(allocator);
+        if (self.then_body) |then| {
+            for (then) |stmt| {
+                stmt.deinit(allocator);
+            }
+            allocator.free(then);
+        }
+        if (self.elifs) |elifs| {
+            for (elifs) |elif| {
+                elif.deinit(allocator);
+            }
+            allocator.free(elifs);
+        }
+        if (self.else_body) |body| {
+            for (body) |stmt| {
+                stmt.deinit(allocator);
+            }
+            allocator.free(body);
         }
     }
 };
 
 pub const Statement = union(enum) {
+    expr: Expression,
     var_decl: VarDecl,
-    func_decl: FuncDecl,
-    class_decl: ClassDecl,
+    @"if": If,
+    @"return": Expression,
 
     pub fn deinit(self: Statement, allocator: std.mem.Allocator) void {
         switch (self) {
+            .expr => |e| e.deinit(allocator),
             .var_decl => |v| v.deinit(allocator),
-            .func_decl => |f| f.deinit(allocator),
-            .class_decl => |c| c.deinit(allocator),
+            .@"if" => |i| i.deinit(allocator),
+            .@"return" => |r| r.deinit(allocator),
         }
     }
 };
@@ -476,6 +530,15 @@ pub const Slot = struct {
     }
 };
 
+pub fn writeAst(writer: *std.Io.Writer, ast: ClassDecl) !void {
+    var ast_writer: Writer = .{
+        .writer = writer,
+        .indent_level = 0,
+        .indent_amount = 2,
+    };
+    try ast_writer.writeClassDecl(ast);
+}
+
 pub fn writeWidget(writer: *std.Io.Writer, widget: Widget) !void {
     var ast_writer: Writer = .{
         .writer = writer,
@@ -485,7 +548,7 @@ pub fn writeWidget(writer: *std.Io.Writer, widget: Widget) !void {
     try ast_writer.writeWidget(widget);
 }
 
-const Writer = struct {
+pub const Writer = struct {
     writer: *std.Io.Writer,
     indent_level: usize,
     indent_amount: usize,
@@ -498,7 +561,7 @@ const Writer = struct {
         }
     }
 
-    fn writeLiteral(self: *Writer, literal: Literal) Error!void {
+    pub fn writeLiteral(self: *Writer, literal: Literal) Error!void {
         switch (literal) {
             .ident => |i| try self.writer.writeAll(i),
             .string => |s| try self.writer.print("\"{s}\"", .{s}),
@@ -506,7 +569,7 @@ const Writer = struct {
         }
     }
 
-    fn writeUnary(self: *Writer, unary: UnaryExpr) Error!void {
+    pub fn writeUnary(self: *Writer, unary: UnaryExpr) Error!void {
         switch (unary.op) {
             .add => try self.writer.writeByte('+'),
             .minus => try self.writer.writeByte('-'),
@@ -515,7 +578,7 @@ const Writer = struct {
         try self.writeExpression(unary.right);
     }
 
-    fn writeBinary(self: *Writer, binary: BinaryExpr) Error!void {
+    pub fn writeBinary(self: *Writer, binary: BinaryExpr) Error!void {
         try self.writeExpression(binary.left);
         switch (binary.op) {
             .assign => try self.writer.writeAll(" = "),
@@ -539,7 +602,7 @@ const Writer = struct {
         try self.writeExpression(binary.right);
     }
 
-    fn writeFuncCall(self: *Writer, func_call: FuncCall) Error!void {
+    pub fn writeFuncCall(self: *Writer, func_call: FuncCall) Error!void {
         try self.writeExpression(func_call.left);
         try self.writer.writeByte('(');
         if (func_call.values) |values| {
@@ -553,20 +616,20 @@ const Writer = struct {
         try self.writer.writeByte(')');
     }
 
-    fn writeArrayAccess(self: *Writer, array_access: ArrayAccess) Error!void {
+    pub fn writeArrayAccess(self: *Writer, array_access: ArrayAccess) Error!void {
         try self.writeExpression(array_access.left);
         try self.writer.writeByte('[');
         try self.writeExpression(array_access.value);
         try self.writer.writeByte(']');
     }
 
-    fn writeMemberAccess(self: *Writer, member_access: MemberAccess) Error!void {
+    pub fn writeMemberAccess(self: *Writer, member_access: MemberAccess) Error!void {
         try self.writeExpression(member_access.left);
         try self.writer.writeByte('.');
         try self.writer.writeAll(member_access.member);
     }
 
-    fn writeExpression(self: *Writer, expr: Expression) Error!void {
+    pub fn writeExpression(self: *Writer, expr: Expression) Error!void {
         switch (expr) {
             .literal => |l| try self.writeLiteral(l),
             .unary => |u| try self.writeUnary(u.*),
@@ -574,17 +637,113 @@ const Writer = struct {
             .func_call => |f| try self.writeFuncCall(f.*),
             .array_access => |a| try self.writeArrayAccess(a.*),
             .member_access => |m| try self.writeMemberAccess(m.*),
-            .layout => |l| try self.writeWidget(l),
+            .layout => |l| {
+                try self.writer.writeAll("layout {\n");
+                self.indent_amount += 1;
+                try self.writeIndent();
+                try self.writeWidget(l);
+                self.indent_amount -= 1;
+                try self.writeIndent();
+                try self.writer.writeByte('}');
+            },
         }
     }
 
-    fn writeWidget(self: *Writer, widget: Widget) Error!void {
+    pub fn writeVarDecl(self: *Writer, var_decl: VarDecl) Error!void {
+        try self.writer.print(
+            "{s} : {s} ",
+            .{
+                var_decl.ident,
+                var_decl.type orelse "",
+            },
+        );
+        try self.writer.writeByte(if (var_decl.constant) ':' else '=');
+        try self.writeExpression(var_decl.value);
+        try self.writer.writeByte(';');
+    }
+
+    pub fn writeFuncDecl(self: *Writer, func_decl: FuncDecl) Error!void {
+        try self.writer.print("{s} :: func(", .{func_decl.ident});
+        if (func_decl.params) |params| {
+            for (params, 0..) |param, i| {
+                try self.writer.print("{s}: {s}", .{ param.ident, param.type });
+                if (i + 1 < params.len) {
+                    try self.writer.writeAll(", ");
+                }
+            }
+        }
+        try self.writer.writeAll(") ");
+        if (func_decl.return_type) |ret| {
+            try self.writer.writeAll(ret);
+            try self.writer.writeByte(' ');
+        }
+        try self.writer.writeByte('{');
+        if (func_decl.body) |body| {
+            try self.writer.writeByte('\n');
+            self.indent_level += 1;
+            for (body) |stmt| {
+                try self.writeIndent();
+                try self.writeStatement(stmt);
+            }
+            self.indent_level -= 1;
+        }
+        try self.writeIndent();
+        try self.writer.writeByte('}');
+    }
+
+    pub fn writeClassDecl(self: *Writer, class_decl: ClassDecl) Error!void {
+        try self.writer.print("{s} :: class {{", .{class_decl.ident});
+        if (class_decl.decls) |decls| {
+            try self.writer.writeByte('\n');
+            self.indent_level += 1;
+            for (decls) |d| {
+                try self.writeIndent();
+                try self.writeDeclaration(d);
+            }
+            self.indent_level -= 1;
+        }
+        try self.writeIndent();
+        try self.writer.writeByte('}');
+    }
+
+    pub fn writeDeclaration(self: *Writer, decl: Declaration) Error!void {
+        switch (decl) {
+            .var_decl => |v| try self.writeVarDecl(v),
+            .func_decl => |f| try self.writeFuncDecl(f),
+            .class_decl => |c| try self.writeClassDecl(c),
+        }
+        try self.writer.writeByte('\n');
+    }
+
+    pub fn writeReturn(self: *Writer, expr: Expression) Error!void {
+        try self.writer.writeAll("return ");
+        try self.writeExpression(expr);
+        try self.writer.writeByte(';');
+    }
+
+    pub fn writeStatement(self: *Writer, stmt: Statement) Error!void {
+        switch (stmt) {
+            .var_decl => |d| try self.writeDeclaration(.{ .var_decl = d }),
+            .@"return" => |r| try self.writeReturn(r),
+            .expr => |e| {
+                try self.writeExpression(e);
+                try self.writer.writeByte(';');
+            },
+            else => {},
+        }
+        try self.writer.writeByte('\n');
+    }
+
+    pub fn writeWidget(self: *Writer, widget: Widget) Error!void {
         try self.writer.print("{s}", .{widget.name});
 
         if (widget.props) |props| {
-            for (props) |prop| {
-                try self.writer.writeByte(' ');
+            try self.writer.writeByte(' ');
+            for (props, 0..) |prop, i| {
                 try self.writeProperty(prop);
+                if (i + 1 < props.len) {
+                    try self.writer.writeAll(", ");
+                }
             }
         }
 
@@ -596,12 +755,12 @@ const Writer = struct {
         }
     }
 
-    fn writeProperty(self: *Writer, prop: Property) Error!void {
+    pub fn writeProperty(self: *Writer, prop: Property) Error!void {
         try self.writer.print("{s}=", .{prop.key});
         try self.writePropertyValue(prop.value);
     }
 
-    fn writePropertyValue(self: *Writer, value: Property.Value) Error!void {
+    pub fn writePropertyValue(self: *Writer, value: Property.Value) Error!void {
         switch (value) {
             .literal => |l| try self.writeLiteral(l),
             .array => |a| {
@@ -632,15 +791,19 @@ const Writer = struct {
         }
     }
 
-    fn writeSlot(self: *Writer, slot: Slot) Error!void {
+    pub fn writeSlot(self: *Writer, slot: Slot) Error!void {
         try self.writeIndent();
-        try self.writer.writeAll("+ ");
+        try self.writer.writeByte('+');
 
         if (slot.props) |props| {
-            for (props) |prop| {
+            try self.writer.writeByte(' ');
+            for (props, 0..) |prop, i| {
                 try self.writeProperty(prop);
-                try self.writer.writeByte(' ');
+                if (i + 1 < props.len) {
+                    try self.writer.writeAll(", ");
+                }
             }
+            try self.writer.writeByte(' ');
         }
 
         self.indent_level += 1;

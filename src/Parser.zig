@@ -18,7 +18,7 @@ const Mode = enum {
     layout,
 };
 
-pub fn init(src: []const u8) Self {
+pub fn init(src: []const u8, mode: Mode) Self {
     var self: Self = .{
         .lexer = .{
             .src = src,
@@ -28,8 +28,299 @@ pub fn init(src: []const u8) Self {
         },
         .current = undefined,
     };
-    self.advance(.layout);
+    self.advance(mode);
     return self;
+}
+
+pub fn parseStatement(self: *Self, allocator: std.mem.Allocator) Error!ast.Statement {
+    switch (self.current.kind) {
+        .ident => {
+            const ident = self.current.value;
+            const peek_token = self.peek(.script);
+            switch (peek_token.kind) {
+                .colon => {
+                    self.advance(.script);
+                    const decl = try self.parseDeclaration(allocator, ident);
+                    switch (decl) {
+                        .var_decl => |v| return .{ .var_decl = v },
+                        else => {
+                            std.log.err(
+                                "Illegal declaration in scope at line {} in column {}",
+                                .{
+                                    self.current.line, self.current.column,
+                                },
+                            );
+                            return Error.InvalidSyntax;
+                        },
+                    }
+                },
+                else => {},
+            }
+        },
+        .@"if" => return .{ .@"if" = try self.parseIfStatement(allocator) },
+        .@"return" => {
+            self.advance(.script);
+            const expr = try self.parseExpression(allocator, 0, .script);
+            try self.expect(.semicolon, .script);
+            return .{ .@"return" = expr };
+        },
+        else => {},
+    }
+
+    const expr = try self.parseExpression(allocator, 0, .script);
+    try self.expect(.semicolon, .script);
+    return .{ .expr = expr };
+}
+
+pub fn parseDeclaration(self: *Self, allocator: std.mem.Allocator, ident: []const u8) Error!ast.Declaration {
+    try self.expect(.colon, .script);
+
+    var typename: ?[]const u8 = null;
+    if (self.check(.ident)) {
+        typename = self.current.value;
+        self.advance(.script);
+    }
+
+    const constant = if (self.check(.colon)) true else if (self.check(.equal)) false else {
+        std.log.err(
+            "Expected '=' or ':' in declaration, found {s} (\"{s}\") on line {} in column {}",
+            .{
+                @tagName(self.current.kind),
+                self.current.value,
+                self.current.line,
+                self.current.column,
+            },
+        );
+        return Error.UnexpectedToken;
+    };
+    self.advance(.script);
+
+    switch (self.current.kind) {
+        .func => {
+            if (!constant) {
+                std.log.err(
+                    "Function '{s}' on line {} in column {} must be constant",
+                    .{
+                        ident,
+                        self.current.line,
+                        self.current.column,
+                    },
+                );
+                return Error.InvalidSyntax;
+            }
+
+            return .{ .func_decl = try self.parseFuncDecl(allocator, ident) };
+        },
+        .class => {
+            if (!constant) {
+                std.log.err(
+                    "Class '{s}' on line {} in column {} must be constant",
+                    .{
+                        ident,
+                        self.current.line,
+                        self.current.column,
+                    },
+                );
+                return Error.InvalidSyntax;
+            }
+
+            return .{ .class_decl = try self.parseClassDecl(allocator, ident) };
+        },
+        .@"enum" => std.log.warn("TODO - parse enum", .{}),
+        else => {},
+    }
+
+    // Assume variable declaration
+    const value = try self.parseExpression(allocator, 0, .script);
+    try self.expect(.semicolon, .script);
+    return .{
+        .var_decl = .{
+            .ident = ident,
+            .type = typename,
+            .value = value,
+            .constant = constant,
+        },
+    };
+}
+
+pub fn parseFuncDecl(self: *Self, allocator: std.mem.Allocator, ident: []const u8) Error!ast.FuncDecl {
+    try self.expect(.func, .script);
+    try self.expect(.left_bracket, .script);
+    var params: std.ArrayList(ast.FuncDecl.Param) = .empty;
+    errdefer params.deinit(allocator);
+    while (!self.check(.right_bracket)) {
+        try params.append(allocator, try self.parseFuncParam());
+    }
+    try self.expect(.right_bracket, .script);
+
+    var return_type: ?[]const u8 = null;
+    if (self.check(.ident)) {
+        return_type = self.current.value;
+        self.advance(.script);
+    }
+
+    try self.expect(.left_brace, .script);
+    var body: std.ArrayList(ast.Statement) = .empty;
+    errdefer {
+        for (body.items) |stmt| {
+            stmt.deinit(allocator);
+        }
+        body.deinit(allocator);
+    }
+    while (!self.check(.right_brace)) {
+        try body.append(allocator, try self.parseStatement(allocator));
+    }
+    try self.expect(.right_brace, .script);
+
+    return .{
+        .ident = ident,
+        .params = if (params.items.len > 0) try params.toOwnedSlice(allocator) else null,
+        .return_type = return_type,
+        .body = if (body.items.len > 0) try body.toOwnedSlice(allocator) else null,
+    };
+}
+
+pub fn parseFuncParam(self: *Self) Error!ast.FuncDecl.Param {
+    if (!self.check(.ident)) {
+        return Error.UnexpectedToken;
+    }
+
+    const ident = self.current.value;
+    self.advance(.script);
+
+    try self.expect(.colon, .script);
+
+    if (!self.check(.ident)) {
+        return Error.UnexpectedToken;
+    }
+    const typename = self.current.value;
+    self.advance(.script);
+
+    return .{
+        .ident = ident,
+        .type = typename,
+    };
+}
+
+pub fn parseClassDecl(self: *Self, allocator: std.mem.Allocator, ident: []const u8) Error!ast.ClassDecl {
+    try self.expect(.class, .script);
+    try self.expect(.left_brace, .script);
+    const body = try self.parseClassBody(allocator, ident);
+    errdefer body.deinit(allocator);
+    try self.expect(.right_brace, .script);
+
+    return body;
+}
+
+pub fn parseClassBody(self: *Self, allocator: std.mem.Allocator, ident: []const u8) Error!ast.ClassDecl {
+    var decls: std.ArrayList(ast.Declaration) = .empty;
+    errdefer {
+        for (decls.items) |decl| {
+            decl.deinit(allocator);
+        }
+        decls.deinit(allocator);
+    }
+    while (!self.check(.right_brace) and !self.check(.eof)) {
+        if (!self.check(.ident)) {
+            std.log.err(
+                "Expected indentifier for declaration in class {s}, found {s} (\"{s}\") on line {} in column {}",
+                .{
+                    ident,
+                    @tagName(self.current.kind),
+                    self.current.value,
+                    self.current.line,
+                    self.current.column,
+                },
+            );
+            return Error.UnexpectedToken;
+        }
+
+        const decl_ident = self.current.value;
+        self.advance(.script);
+        try decls.append(allocator, try self.parseDeclaration(allocator, decl_ident));
+    }
+    return .{
+        .ident = ident,
+        .decls = if (decls.items.len > 0) try decls.toOwnedSlice(allocator) else null,
+    };
+}
+
+pub fn parseIfStatement(self: *Self, allocator: std.mem.Allocator) Error!ast.If {
+    try self.expect(.@"if", .script);
+
+    const cond = try self.parseExpression(allocator, 0, .script);
+    errdefer cond.deinit(allocator);
+
+    try self.expect(.left_brace, .script);
+    var then_body: std.ArrayList(ast.Statement) = .empty;
+    errdefer {
+        for (then_body.items) |stmt| {
+            stmt.deinit(allocator);
+        }
+        then_body.deinit(allocator);
+    }
+    while (!self.check(.right_brace)) {
+        try then_body.append(allocator, try self.parseStatement(allocator));
+    }
+    try self.expect(.right_brace, .script);
+
+    var elifs: std.ArrayList(ast.If.Elif) = .empty;
+    errdefer {
+        for (elifs.items) |elif| {
+            elif.deinit(allocator);
+        }
+        elifs.deinit(allocator);
+    }
+
+    var else_body: std.ArrayList(ast.Statement) = .empty;
+    errdefer {
+        for (else_body.items) |stmt| {
+            stmt.deinit(allocator);
+        }
+        else_body.deinit(allocator);
+    }
+
+    while (self.match(.@"else", .script)) {
+        if (self.match(.@"if", .script)) {
+            const elif_cond = try self.parseExpression(allocator, 0, .script);
+            errdefer elif_cond.deinit(allocator);
+
+            try self.expect(.left_brace, .script);
+            var elif_body: std.ArrayList(ast.Statement) = .empty;
+            errdefer {
+                for (elif_body.items) |stmt| {
+                    stmt.deinit(allocator);
+                }
+                elif_body.deinit(allocator);
+            }
+            while (!self.check(.right_brace)) {
+                try elif_body.append(allocator, try self.parseStatement(allocator));
+            }
+            try self.expect(.right_brace, .script);
+
+            try elifs.append(
+                allocator,
+                .{
+                    .cond = elif_cond,
+                    .body = if (elif_body.items.len > 0) try elif_body.toOwnedSlice(allocator) else null,
+                },
+            );
+        } else {
+            try self.expect(.left_brace, .script);
+            while (!self.check(.right_brace)) {
+                try else_body.append(allocator, try self.parseStatement(allocator));
+            }
+            try self.expect(.right_brace, .script);
+            break;
+        }
+    }
+
+    return .{
+        .cond = cond,
+        .then_body = if (then_body.items.len > 0) try then_body.toOwnedSlice(allocator) else null,
+        .elifs = if (elifs.items.len > 0) try elifs.toOwnedSlice(allocator) else null,
+        .else_body = if (else_body.items.len > 0) try else_body.toOwnedSlice(allocator) else null,
+    };
 }
 
 pub fn parseWidget(self: *Self, allocator: std.mem.Allocator) Error!ast.Widget {
@@ -330,14 +621,16 @@ fn parsePrimary(self: *Self, allocator: std.mem.Allocator, mode: Mode) Error!ast
         return .{ .unary = unary };
     }
 
+    self.advance(mode);
     switch (token.kind) {
-        .ident => {
-            self.advance(mode);
-            return .{ .literal = .{ .ident = token.value } };
-        },
-        .string_lit => {
-            self.advance(mode);
-            return .{ .literal = .{ .string = token.value } };
+        .ident => return .{ .literal = .{ .ident = token.value } },
+        .string_lit => return .{ .literal = .{ .string = token.value } },
+        .number_lit => return .{ .literal = .{ .number = token.value } },
+        .layout => {
+            try self.expect(.left_brace, .script);
+            const layout = try self.parseWidget(allocator);
+            try self.expect(.right_brace, .script);
+            return .{ .layout = layout };
         },
         else => {},
     }
@@ -372,6 +665,31 @@ fn advance(self: *Self, mode: Mode) void {
     self.current = switch (mode) {
         .script => lexer.lexScript(char),
         .layout => lexer.lexLayout(char),
+    };
+}
+
+fn peek(self: *Self, mode: Mode) Token {
+    if (self.lexer.peek()) |char| {
+        const pos = self.lexer.pos;
+        const line = self.lexer.line;
+        const column = self.lexer.line;
+
+        const token = switch (mode) {
+            .layout => self.lexer.lexLayout(char),
+            .script => self.lexer.lexScript(char),
+        };
+
+        self.lexer.pos = pos;
+        self.lexer.line = line;
+        self.lexer.column = column;
+        return token;
+    }
+
+    return .{
+        .kind = .eof,
+        .value = "",
+        .line = self.lexer.line,
+        .column = self.lexer.column,
     };
 }
 

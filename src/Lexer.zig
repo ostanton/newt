@@ -10,6 +10,15 @@ column: usize,
 const Self = @This();
 const script_keywords: std.StaticStringMap(Token.Kind) = .initComptime(.{
     .{ "func", .func },
+    .{ "enum", .@"enum" },
+    .{ "class", .class },
+    .{ "return", .@"return" },
+    .{ "if", .@"if" },
+    .{ "else", .@"else" },
+    .{ "for", .@"for" },
+    .{ "or", .@"or" },
+    .{ "and", .@"and" },
+    .{ "layout", .layout },
 });
 
 pub fn lexLayout(self: *Self, char: u8) Token {
@@ -19,6 +28,8 @@ pub fn lexLayout(self: *Self, char: u8) Token {
         ')' => self.makeToken(.right_bracket, ")"),
         '[' => self.makeToken(.left_square, "["),
         ']' => self.makeToken(.right_square, "]"),
+        '{' => self.makeToken(.left_brace, "{"),
+        '}' => self.makeToken(.right_brace, "}"),
         ',' => self.makeToken(.comma, ","),
         '$' => self.makeToken(.dollar, "$"),
         '=' => if (self.peek()) |c| switch (c) {
@@ -30,6 +41,7 @@ pub fn lexLayout(self: *Self, char: u8) Token {
             self.column += 1;
             break :blk self.readStringLit();
         },
+        // Special case for negatives as layout parsing doesn't support expressions beyond literals (no unaries)
         else => if (std.ascii.isDigit(char) or char == '-') self.readNumberLit() else self.readIdent(null),
     };
 }
@@ -39,16 +51,52 @@ pub fn lexScript(self: *Self, char: u8) Token {
         '.' => self.makeToken(.dot, "."),
         '(' => self.makeToken(.left_bracket, "("),
         ')' => self.makeToken(.right_bracket, ")"),
+        '{' => self.makeToken(.left_brace, "{"),
+        '}' => self.makeToken(.right_brace, "}"),
+        '[' => self.makeToken(.left_square, "["),
+        ']' => self.makeToken(.right_square, "]"),
+        ';' => self.makeToken(.semicolon, ";"),
+        ':' => self.makeToken(.colon, ":"),
+        ',' => self.makeToken(.comma, ","),
+        '=' => if (self.peek()) |c| switch (c) {
+            '=' => self.makeTokenEx(.equal_equal, "==", 2, 2),
+            '>' => self.makeTokenEx(.equal_greater_than, "=>", 2, 2),
+            else => self.makeToken(.equal, "="),
+        } else unreachable,
         '+' => if (self.peek()) |c| switch (c) {
             '=' => self.makeTokenEx(.plus_equal, "+=", 2, 2),
             else => self.makeToken(.plus, "+"),
+        } else unreachable,
+        '-' => if (self.peek()) |c| switch (c) {
+            '=' => self.makeTokenEx(.minus_equal, "-=", 2, 2),
+            else => self.makeToken(.minus, "-"),
+        } else unreachable,
+        '*' => if (self.peek()) |c| switch (c) {
+            '=' => self.makeTokenEx(.star_equal, "*=", 2, 2),
+            else => self.makeToken(.star, "*"),
+        } else unreachable,
+        '/' => if (self.peek()) |c| switch (c) {
+            '=' => self.makeTokenEx(.slash_equal, "/=", 2, 2),
+            else => self.makeToken(.slash, "/"),
+        } else unreachable,
+        '>' => if (self.peek()) |c| switch (c) {
+            '=' => self.makeTokenEx(.greater_than_equal, ">=", 2, 2),
+            else => self.makeToken(.greater_than, ">"),
+        } else unreachable,
+        '<' => if (self.peek()) |c| switch (c) {
+            '=' => self.makeTokenEx(.less_than_equal, "<=", 2, 2),
+            else => self.makeToken(.less_than, "<"),
+        } else unreachable,
+        '!' => if (self.peek()) |c| switch (c) {
+            '=' => self.makeTokenEx(.bang_equal, "!=", 2, 2),
+            else => self.makeToken(.bang, "!"),
         } else unreachable,
         '"' => blk: {
             self.pos += 1;
             self.column += 1;
             break :blk self.readStringLit();
         },
-        else => if (std.ascii.isDigit(char) or char == '-') self.readNumberLit() else self.readIdent(&script_keywords),
+        else => if (std.ascii.isDigit(char)) self.readNumberLit() else self.readIdent(&script_keywords),
     };
 }
 
@@ -57,7 +105,7 @@ pub fn peek(self: Self) ?u8 {
         return null;
     }
 
-    return self.src[self.pos];
+    return self.src[self.pos + 1];
 }
 
 pub fn makeToken(self: *Self, kind: Token.Kind, value: []const u8) Token {

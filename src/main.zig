@@ -73,6 +73,21 @@ fn parseScript(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void
         return;
     };
     defer file.close(io);
+    var read_buffer: [1024]u8 = undefined;
+    var reader = file.reader(io, &read_buffer);
+    const src = try reader.interface.allocRemaining(allocator, .unlimited);
+    defer allocator.free(src);
+
     std.log.info("Parsing script '{s}'", .{path});
-    _ = allocator;
+    var ast = newt.script.parseString(allocator, src, path) catch |err| {
+        std.log.err("Failed to parse script: {}", .{err});
+        return;
+    };
+    defer ast.deinit(allocator);
+    std.log.info("Finished parsing script", .{});
+
+    var buffer: [1024]u8 = undefined;
+    var writer: std.Io.File.Writer = .init(.stdout(), io, &buffer);
+    try newt.ast.writeAst(&writer.interface, ast);
+    try writer.flush();
 }
