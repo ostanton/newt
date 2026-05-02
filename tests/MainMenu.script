@@ -29,3 +29,15 @@ openLoadSaveMenu :: func() {
 openSettingsMenu :: func() {
 	Game.Viewport.addWidget(SettingsMenu)
 }
+
+createHealthWidget :: func() Widget {
+	return layout {
+		HBox
+		+ valign=centre (ProgressBar
+			name="health_progress"
+			percent=1)
+		+(Label
+			text=>$(string.format(health_progress.percent))
+			font="Comic Sans")
+	};
+}

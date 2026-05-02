@@ -8,6 +8,49 @@ line: usize,
 column: usize,
 
 const Self = @This();
+const script_keywords: std.StaticStringMap(Token.Kind) = .initComptime(.{
+    .{ "func", .func },
+});
+
+pub fn lexLayout(self: *Self, char: u8) Token {
+    return switch (char) {
+        '+' => self.makeToken(.plus, "+"),
+        '(' => self.makeToken(.left_bracket, "("),
+        ')' => self.makeToken(.right_bracket, ")"),
+        '[' => self.makeToken(.left_square, "["),
+        ']' => self.makeToken(.right_square, "]"),
+        ',' => self.makeToken(.comma, ","),
+        '$' => self.makeToken(.dollar, "$"),
+        '=' => if (self.peek()) |c| switch (c) {
+            '>' => self.makeTokenEx(.equal_greater_than, "=>", 2, 2),
+            else => self.makeToken(.equal, "="),
+        } else unreachable,
+        '"' => blk: {
+            self.pos += 1;
+            self.column += 1;
+            break :blk self.readStringLit();
+        },
+        else => if (std.ascii.isDigit(char) or char == '-') self.readNumberLit() else self.readIdent(null),
+    };
+}
+
+pub fn lexScript(self: *Self, char: u8) Token {
+    return switch (char) {
+        '.' => self.makeToken(.dot, "."),
+        '(' => self.makeToken(.left_bracket, "("),
+        ')' => self.makeToken(.right_bracket, ")"),
+        '+' => if (self.peek()) |c| switch (c) {
+            '=' => self.makeTokenEx(.plus_equal, "+=", 2, 2),
+            else => self.makeToken(.plus, "+"),
+        } else unreachable,
+        '"' => blk: {
+            self.pos += 1;
+            self.column += 1;
+            break :blk self.readStringLit();
+        },
+        else => if (std.ascii.isDigit(char) or char == '-') self.readNumberLit() else self.readIdent(&script_keywords),
+    };
+}
 
 pub fn peek(self: Self) ?u8 {
     if (self.pos + 1 >= self.src.len) {
@@ -121,24 +164,17 @@ pub fn readNumberLit(self: *Self) Token {
             self.pos += 1;
             self.column += 1;
         }
-
-        return .{
-            .kind = .float_lit,
-            .value = self.src[start..self.pos],
-            .line = self.line,
-            .column = start_col,
-        };
     }
 
     return .{
-        .kind = .int_lit,
+        .kind = .number_lit,
         .value = self.src[start..self.pos],
         .line = self.line,
         .column = start_col,
     };
 }
 
-pub fn readIdent(self: *Self, keywords: *const std.StaticStringMap(Token.Kind)) Token {
+pub fn readIdent(self: *Self, keywords: ?*const std.StaticStringMap(Token.Kind)) Token {
     const start = self.pos;
     const start_col = self.column;
 
@@ -149,8 +185,10 @@ pub fn readIdent(self: *Self, keywords: *const std.StaticStringMap(Token.Kind)) 
 
     const value = self.src[start..self.pos];
     var kind: Token.Kind = .ident;
-    if (keywords.get(value)) |k| {
-        kind = k;
+    if (keywords) |kws| {
+        if (kws.get(value)) |k| {
+            kind = k;
+        }
     }
 
     return .{

@@ -1,5 +1,5 @@
-VBox
-+ valign=centre padding=(-8, 24) (Image text="Main Menu")
+VBox hi=mn
+	+ valign=centre, padding=$(self.getPadding()) (Image text="Main Menu")
 + valign=fill (VBox cursor=hand
 	+ halign=left (Image items=[-4, -1, 7, 3])
 	+ halign=right (Image))
