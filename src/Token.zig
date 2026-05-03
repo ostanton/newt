@@ -9,6 +9,7 @@ pub const Kind = enum {
     number_lit,
     string_lit,
     semicolon,
+    newline,
     colon,
     comma,
     dot,

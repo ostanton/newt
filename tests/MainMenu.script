@@ -2,35 +2,39 @@
 # It has similarities with GDscript
 
 # constant (::) like Odin
-is_debug : bool : Game.buildMode() == Game.BuildMode.debug;
-timer : float = 0;
-some_bool : bool = false;
+is_debug : bool : Game.buildMode() == Game.BuildMode.debug
+timer : float; some_bool : bool = false
 
 # Tick override
-tick :: func(dt: float) {
-	timer += dt;
-}
+tick :: func(dt: float) {timer += dt}
 
 # These would get bound via the button widget's "clicked" property:
 # +(Button clicked="startNewGame")
 startNewGame :: func() {
-	target_level : string = "Level_First";
+	target_level : string = "Level_First"
 	if is_debug {
-		target_level = level_combo.selectedItem();
+		target_level = level_combo.selectedItem()
+	} else if timer > 0 {
+		print("NO!")
+	} else if some_bool != is_debug {
+		timer *= 5
+	} else {
+		tick(2)
 	}
 
-	Game.openLevel(target_level);
+	Game.openLevel(target_level)
 }
 
 openLoadSaveMenu :: func() {
-	Game.Viewport.addWidget(LoadSaveMenu);
+	Game.Viewport.addWidget(LoadSaveMenu)
 }
 
 openSettingsMenu :: func() {
-	Game.Viewport.addWidget(SettingsMenu);
+	Game.Viewport.addWidget(SettingsMenu)
 }
 
 createHealthWidget :: func() Widget {
+	l :: layout{VBox}
 	return layout {
 		HBox
 		+ valign=centre (ProgressBar
@@ -39,9 +43,9 @@ createHealthWidget :: func() Widget {
 		+(Label
 			text=$(string.format(health_progress.percent)),
 			font="Comic Sans")
-	};
+	}
 }
 
 MyWidget :: class {
-	num : float = 5;
+	num : float = 5
 }

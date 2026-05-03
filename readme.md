@@ -40,8 +40,8 @@ newt:
 
 ```
 VBox
-+ halign=center autoheight=true padding=(0, 0, 0, 20) (
-	Button contentpadding=(10, 2) pressed="self.buttonPressed"
++ halign=center, autoheight=true, padding=(0, 0, 0, 20) (
+	Button contentpadding=(10, 2), pressed="self.buttonPressed"
 	+(Label text="Click me"))
-+ halign=center autoheight=true (Label text="Something")
++ halign=center, autoheight=true (Label text="Something")
 ```

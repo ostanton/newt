@@ -56,6 +56,7 @@ pub fn lexScript(self: *Self, char: u8) Token {
         '[' => self.makeToken(.left_square, "["),
         ']' => self.makeToken(.right_square, "]"),
         ';' => self.makeToken(.semicolon, ";"),
+        '\n' => self.makeToken(.newline, "\n"),
         ':' => self.makeToken(.colon, ":"),
         ',' => self.makeToken(.comma, ","),
         '=' => if (self.peek()) |c| switch (c) {

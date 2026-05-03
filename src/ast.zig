@@ -243,11 +243,13 @@ pub const Expression = union(enum) {
 pub const VarDecl = struct {
     ident: []const u8,
     type: ?[]const u8,
-    value: Expression,
+    value: ?Expression,
     constant: bool,
 
     pub fn deinit(self: VarDecl, allocator: std.mem.Allocator) void {
-        self.value.deinit(allocator);
+        if (self.value) |value| {
+            value.deinit(allocator);
+        }
     }
 };
 
@@ -651,15 +653,16 @@ pub const Writer = struct {
 
     pub fn writeVarDecl(self: *Writer, var_decl: VarDecl) Error!void {
         try self.writer.print(
-            "{s} : {s} ",
-            .{
-                var_decl.ident,
-                var_decl.type orelse "",
-            },
+            "{s} :",
+            .{var_decl.ident},
         );
-        try self.writer.writeByte(if (var_decl.constant) ':' else '=');
-        try self.writeExpression(var_decl.value);
-        try self.writer.writeByte(';');
+        if (var_decl.type) |typename| {
+            try self.writer.print(" {s} ", .{typename});
+        }
+        if (var_decl.value) |value| {
+            try self.writer.writeAll(if (var_decl.constant) ": " else "= ");
+            try self.writeExpression(value);
+        }
     }
 
     pub fn writeFuncDecl(self: *Writer, func_decl: FuncDecl) Error!void {
@@ -699,6 +702,7 @@ pub const Writer = struct {
             for (decls) |d| {
                 try self.writeIndent();
                 try self.writeDeclaration(d);
+                try self.writer.writeByte('\n');
             }
             self.indent_level -= 1;
         }
@@ -712,13 +716,59 @@ pub const Writer = struct {
             .func_decl => |f| try self.writeFuncDecl(f),
             .class_decl => |c| try self.writeClassDecl(c),
         }
-        try self.writer.writeByte('\n');
     }
 
     pub fn writeReturn(self: *Writer, expr: Expression) Error!void {
         try self.writer.writeAll("return ");
         try self.writeExpression(expr);
-        try self.writer.writeByte(';');
+    }
+
+    pub fn writeIf(self: *Writer, if_stmt: If) Error!void {
+        try self.writer.writeAll("if ");
+        try self.writeExpression(if_stmt.cond);
+        try self.writer.writeAll(" {");
+        if (if_stmt.then_body) |body| {
+            try self.writer.writeByte('\n');
+            self.indent_level += 1;
+            for (body) |stmt| {
+                try self.writeIndent();
+                try self.writeStatement(stmt);
+            }
+            self.indent_level -= 1;
+        }
+        try self.writeIndent();
+        try self.writer.writeByte('}');
+
+        if (if_stmt.elifs) |elifs| {
+            for (elifs) |elif| {
+                try self.writer.writeAll(" else if ");
+                try self.writeExpression(elif.cond);
+                try self.writer.writeAll(" {");
+                if (elif.body) |body| {
+                    try self.writer.writeByte('\n');
+                    self.indent_level += 1;
+                    for (body) |stmt| {
+                        try self.writeIndent();
+                        try self.writeStatement(stmt);
+                    }
+                    self.indent_level -= 1;
+                }
+                try self.writeIndent();
+                try self.writer.writeByte('}');
+            }
+        }
+
+        if (if_stmt.else_body) |body| {
+            try self.writer.writeAll(" else {\n");
+            self.indent_level += 1;
+            for (body) |stmt| {
+                try self.writeIndent();
+                try self.writeStatement(stmt);
+            }
+            self.indent_level -= 1;
+            try self.writeIndent();
+            try self.writer.writeByte('}');
+        }
     }
 
     pub fn writeStatement(self: *Writer, stmt: Statement) Error!void {
@@ -727,9 +777,8 @@ pub const Writer = struct {
             .@"return" => |r| try self.writeReturn(r),
             .expr => |e| {
                 try self.writeExpression(e);
-                try self.writer.writeByte(';');
             },
-            else => {},
+            .@"if" => |i| try self.writeIf(i),
         }
         try self.writer.writeByte('\n');
     }

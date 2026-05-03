@@ -61,14 +61,20 @@ pub fn parseStatement(self: *Self, allocator: std.mem.Allocator) Error!ast.State
         .@"return" => {
             self.advance(.script);
             const expr = try self.parseExpression(allocator, 0, .script);
-            try self.expect(.semicolon, .script);
+            if (self.check(.semicolon)) {
+                self.advance(.script);
+            }
             return .{ .@"return" = expr };
         },
         else => {},
     }
 
+    // TODO - semicolons are entirely optional at the moment, even for multiple statements on a single line.
+    // Might want to enforce semicolons for that case, like Go?
     const expr = try self.parseExpression(allocator, 0, .script);
-    try self.expect(.semicolon, .script);
+    if (self.check(.semicolon)) {
+        self.advance(.script);
+    }
     return .{ .expr = expr };
 }
 
@@ -82,17 +88,20 @@ pub fn parseDeclaration(self: *Self, allocator: std.mem.Allocator, ident: []cons
     }
 
     const constant = if (self.check(.colon)) true else if (self.check(.equal)) false else {
-        std.log.err(
-            "Expected '=' or ':' in declaration, found {s} (\"{s}\") on line {} in column {}",
-            .{
-                @tagName(self.current.kind),
-                self.current.value,
-                self.current.line,
-                self.current.column,
+        // Assume zero-initialised variable
+        if (self.check(.semicolon)) {
+            self.advance(.script);
+        }
+        return .{
+            .var_decl = .{
+                .ident = ident,
+                .type = typename,
+                .value = null,
+                .constant = false,
             },
-        );
-        return Error.UnexpectedToken;
+        };
     };
+
     self.advance(.script);
 
     switch (self.current.kind) {
@@ -132,7 +141,9 @@ pub fn parseDeclaration(self: *Self, allocator: std.mem.Allocator, ident: []cons
 
     // Assume variable declaration
     const value = try self.parseExpression(allocator, 0, .script);
-    try self.expect(.semicolon, .script);
+    if (self.check(.semicolon)) {
+        self.advance(.script);
+    }
     return .{
         .var_decl = .{
             .ident = ident,
