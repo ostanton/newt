@@ -791,7 +791,7 @@ pub const Writer = struct {
             for (props, 0..) |prop, i| {
                 try self.writeProperty(prop);
                 if (i + 1 < props.len) {
-                    try self.writer.writeAll(", ");
+                    try self.writer.writeByte(' ');
                 }
             }
         }
@@ -849,7 +849,7 @@ pub const Writer = struct {
             for (props, 0..) |prop, i| {
                 try self.writeProperty(prop);
                 if (i + 1 < props.len) {
-                    try self.writer.writeAll(", ");
+                    try self.writer.writeByte(' ');
                 }
             }
             try self.writer.writeByte(' ');

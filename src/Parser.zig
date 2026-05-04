@@ -359,9 +359,6 @@ pub fn parseWidget(self: *Self, allocator: std.mem.Allocator) Error!ast.Widget {
     }
     while (self.check(.ident)) {
         try props_arr.append(allocator, try self.parseProperty(allocator));
-        if (!self.match(.comma, .layout)) {
-            break;
-        }
     }
 
     var slots_arr: std.ArrayList(ast.Slot) = .empty;
@@ -392,9 +389,6 @@ pub fn parseSlot(self: *Self, allocator: std.mem.Allocator) Error!ast.Slot {
     }
     while (self.check(.ident)) {
         try props_arr.append(allocator, try self.parseProperty(allocator));
-        if (!self.match(.comma, .layout)) {
-            break;
-        }
     }
 
     try self.expect(.left_bracket, .layout);
