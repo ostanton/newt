@@ -6,10 +6,12 @@ column: usize,
 
 pub const Kind = enum {
     ident,
-    number_lit,
+    /// signed 32-bit
+    int_lit,
+    /// 32-bit
+    float_lit,
     string_lit,
     semicolon,
-    newline,
     colon,
     comma,
     dot,

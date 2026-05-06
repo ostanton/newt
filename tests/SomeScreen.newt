@@ -1,0 +1,63 @@
+# A class which defines both the layout and the logic,
+# as opposed to separate .layout and .script files
+
+root := layout {
+	VBox
+	+ autoheight=true (HBox
+		+ autowidth=true (Image)
+		+ fillwidth=1 (Label text=>$(self.getTabText()) justification=centre scale=(4, 4))
+		+ autowidth=true (Image)
+	)
+	# some kind of @if for conditionally having slots depending on compilation (like debug, release, etc.)
+	+ fillheight=1 (Switcher name="tab_switcher"
+		+(MapScreen)
+		+(ItemScreen)
+		+(WeaponScreen)
+		+(MissionScreen)
+	)
+	+ halign=centre autoheight=true (Button text="Close" clicked=$(self.removeFromParent()))
+}
+tab_texts : []string = ["MAP", "ITEMS", "WEAPONS", "MISSIONS"]
+
+selectTab :: func(index: int) {
+	if index > 3 {
+		index = 0
+	} else if index < 0 {
+		index = 3
+	}
+
+	tab_switcher.setActiveWidgetIndex(index)
+}
+
+getTabText :: func() string {
+	index := tab_switcher.getActiveWidgetIndex()
+	return tab_texts[index]
+}
+
+incrementTab :: func() {
+	selectTab(tab_switcher.getActiveWidgetIndex() + 1)
+}
+
+decrementTab :: func() {
+	selectTab(tab_switcher.getActiveWidgetIndex() - 1)
+}
+
+# some @override attribute maybe, not sure where it would go
+onKeyDown :: func(key: KeyEvent) Reply {
+	nav := Input.keyToNavigation(key)
+	if nav == Input.Navigation.none {
+		return Reply.unhandled()
+	}
+
+	if nav == Input.Navigation.next {
+		incrementTab()
+		return Reply.handled()
+	}
+
+	if nav == Input.Navigation.previous {
+		decrementTab()
+		return Reply.handled()
+	}
+
+	return super.onKeyDown(key)
+}

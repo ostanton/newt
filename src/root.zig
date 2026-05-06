@@ -1,6 +1,8 @@
 const std = @import("std");
 const Parser = @import("Parser.zig");
+const Compiler = @import("Compiler.zig");
 
+pub const VirtualMachine = @import("VirtualMachine.zig");
 pub const ast = @import("ast.zig");
 
 /// Layout DSL parsing

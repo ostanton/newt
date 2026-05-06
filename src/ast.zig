@@ -4,7 +4,11 @@ const Token = @import("Token.zig");
 pub const Literal = union(enum) {
     ident: []const u8,
     string: []const u8,
-    number: []const u8,
+    /// i32 can probably be coerced to f32, but not vice versa
+    int: i32,
+    float: f32,
+    /// Check if these are all the same type later or something
+    array: []Expression,
 
     pub fn eql(self: Literal, other: Literal) bool {
         if (@intFromEnum(self) != @intFromEnum(other)) {
@@ -14,8 +18,49 @@ pub const Literal = union(enum) {
         return switch (self) {
             .ident => |i| std.mem.eql(u8, i, other.ident),
             .string => |s| std.mem.eql(u8, s, other.string),
-            .number => |n| std.mem.eql(u8, n, other.number),
+            .int => |i| i == other.int,
+            .float => |f| f == other.float,
+            .array => |a| {
+                if (a.len != other.array.len) {
+                    return false;
+                }
+
+                for (a, other.array) |arr, arr2| {
+                    if (!arr.eql(arr2)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
         };
+    }
+};
+
+pub const Type = union(enum) {
+    ident: []const u8,
+    array: *Type,
+    map: *Map,
+    pointer: *Type,
+
+    pub const Map = struct {
+        key: Type,
+        value: Type,
+    };
+
+    pub fn deinit(self: Type, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .array, .pointer => |t| {
+                t.deinit(allocator);
+                allocator.destroy(t);
+            },
+            .map => |m| {
+                m.key.deinit(allocator);
+                m.value.deinit(allocator);
+                allocator.destroy(m);
+            },
+            else => {},
+        }
     }
 };
 
@@ -242,11 +287,15 @@ pub const Expression = union(enum) {
 
 pub const VarDecl = struct {
     ident: []const u8,
-    type: ?[]const u8,
+    type: ?Type,
     value: ?Expression,
     constant: bool,
 
     pub fn deinit(self: VarDecl, allocator: std.mem.Allocator) void {
+        if (self.type) |t| {
+            t.deinit(allocator);
+        }
+
         if (self.value) |value| {
             value.deinit(allocator);
         }
@@ -256,7 +305,7 @@ pub const VarDecl = struct {
 pub const FuncDecl = struct {
     ident: []const u8,
     params: ?[]Param,
-    return_type: ?[]const u8,
+    return_type: ?Type,
     body: ?[]Statement,
 
     pub const Param = struct {
@@ -268,6 +317,11 @@ pub const FuncDecl = struct {
         if (self.params) |params| {
             allocator.free(params);
         }
+
+        if (self.return_type) |t| {
+            t.deinit(allocator);
+        }
+
         if (self.body) |body| {
             for (body) |stmt| {
                 stmt.deinit(allocator);
@@ -567,7 +621,18 @@ pub const Writer = struct {
         switch (literal) {
             .ident => |i| try self.writer.writeAll(i),
             .string => |s| try self.writer.print("\"{s}\"", .{s}),
-            .number => |n| try self.writer.writeAll(n),
+            .int => |i| try self.writer.print("{}", .{i}),
+            .float => |f| try self.writer.print("{}", .{f}),
+            .array => |a| {
+                try self.writer.writeByte('[');
+                for (a, 0..) |expr, i| {
+                    try self.writeExpression(expr);
+                    if (i + 1 < a.len) {
+                        try self.writer.writeAll(", ");
+                    }
+                }
+                try self.writer.writeByte(']');
+            },
         }
     }
 
@@ -651,13 +716,35 @@ pub const Writer = struct {
         }
     }
 
+    pub fn writeType(self: *Writer, in_type: Type) Error!void {
+        switch (in_type) {
+            .ident => |i| try self.writer.writeAll(i),
+            .array => |a| {
+                try self.writer.writeAll("[]");
+                try self.writeType(a.*);
+            },
+            .map => |m| {
+                try self.writer.writeByte('[');
+                try self.writeType(m.key);
+                try self.writer.writeByte(']');
+                try self.writeType(m.value);
+            },
+            .pointer => |p| {
+                try self.writer.writeByte('*');
+                try self.writeType(p.*);
+            },
+        }
+    }
+
     pub fn writeVarDecl(self: *Writer, var_decl: VarDecl) Error!void {
         try self.writer.print(
             "{s} :",
             .{var_decl.ident},
         );
         if (var_decl.type) |typename| {
-            try self.writer.print(" {s} ", .{typename});
+            try self.writer.writeByte(' ');
+            try self.writeType(typename);
+            try self.writer.writeByte(' ');
         }
         if (var_decl.value) |value| {
             try self.writer.writeAll(if (var_decl.constant) ": " else "= ");
@@ -677,7 +764,7 @@ pub const Writer = struct {
         }
         try self.writer.writeAll(") ");
         if (func_decl.return_type) |ret| {
-            try self.writer.writeAll(ret);
+            try self.writeType(ret);
             try self.writer.writeByte(' ');
         }
         try self.writer.writeByte('{');

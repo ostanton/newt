@@ -11,7 +11,7 @@ const Self = @This();
 pub const Error = error{
     UnexpectedToken,
     InvalidSyntax,
-} || std.Io.Reader.LimitedAllocError || std.mem.Allocator.Error;
+} || std.Io.Reader.LimitedAllocError || std.fmt.ParseIntError || std.fmt.ParseFloatError;
 
 const Mode = enum {
     script,
@@ -78,14 +78,80 @@ pub fn parseStatement(self: *Self, allocator: std.mem.Allocator) Error!ast.State
     return .{ .expr = expr };
 }
 
+pub fn parseType(self: *Self, allocator: std.mem.Allocator) Error!?ast.Type {
+    switch (self.current.kind) {
+        .left_square => {
+            self.advance(.script);
+            var key: ?ast.Type = null;
+            errdefer if (key) |k| k.deinit(allocator);
+            if (!self.check(.right_square)) {
+                key = try self.parseType(allocator);
+            }
+            try self.expect(.right_square, .script);
+            const value = try self.parseType(allocator);
+            errdefer if (value) |v| v.deinit(allocator);
+
+            if (value) |v| {
+                if (key) |k| {
+                    const map = try allocator.create(ast.Type.Map);
+                    map.* = .{
+                        .key = k,
+                        .value = v,
+                    };
+                    return .{ .map = map };
+                }
+
+                const array = try allocator.create(ast.Type);
+                array.* = v;
+                return .{ .array = array };
+            }
+
+            std.log.err(
+                "Expected array value type, found {s} (\"{s}\") on line {} in column {}",
+                .{
+                    @tagName(self.current.kind),
+                    self.current.value,
+                    self.current.line,
+                    self.current.column,
+                },
+            );
+            return Error.InvalidSyntax;
+        },
+        .star => {
+            self.advance(.script);
+            const pointer = try allocator.create(ast.Type);
+            errdefer allocator.destroy(pointer);
+            if (try self.parseType(allocator)) |ptr| {
+                pointer.* = ptr;
+                return .{ .pointer = pointer };
+            }
+
+            std.log.err(
+                "Expected pointer value type, found {s} (\"{s}\") on line {} in column {}",
+                .{
+                    @tagName(self.current.kind),
+                    self.current.value,
+                    self.current.line,
+                    self.current.column,
+                },
+            );
+            return Error.InvalidSyntax;
+        },
+        .ident => {
+            const ident = self.current.value;
+            self.advance(.script);
+            return .{ .ident = ident };
+        },
+        else => {},
+    }
+
+    return null;
+}
+
 pub fn parseDeclaration(self: *Self, allocator: std.mem.Allocator, ident: []const u8) Error!ast.Declaration {
     try self.expect(.colon, .script);
 
-    var typename: ?[]const u8 = null;
-    if (self.check(.ident)) {
-        typename = self.current.value;
-        self.advance(.script);
-    }
+    const typename: ?ast.Type = try self.parseType(allocator);
 
     const constant = if (self.check(.colon)) true else if (self.check(.equal)) false else {
         // Assume zero-initialised variable
@@ -164,11 +230,7 @@ pub fn parseFuncDecl(self: *Self, allocator: std.mem.Allocator, ident: []const u
     }
     try self.expect(.right_bracket, .script);
 
-    var return_type: ?[]const u8 = null;
-    if (self.check(.ident)) {
-        return_type = self.current.value;
-        self.advance(.script);
-    }
+    const return_type: ?ast.Type = try self.parseType(allocator);
 
     try self.expect(.left_brace, .script);
     var body: std.ArrayList(ast.Statement) = .empty;
@@ -449,7 +511,8 @@ pub fn parsePropertyValue(self: *Self, allocator: std.mem.Allocator) Error!ast.P
     return switch (token.kind) {
         .ident => .{ .literal = .{ .ident = token.value } },
         .string_lit => .{ .literal = .{ .string = token.value } },
-        .number_lit => .{ .literal = .{ .number = token.value } },
+        .int_lit => .{ .literal = .{ .int = try std.fmt.parseInt(i32, token.value, 10) } },
+        .float_lit => .{ .literal = .{ .float = try std.fmt.parseFloat(f32, token.value) } },
         .left_bracket => .{ .tuple = try self.parsePropertyValueContainer(allocator, .right_bracket) },
         .left_square => .{ .array = try self.parsePropertyValueContainer(allocator, .right_square) },
         else => blk: {
@@ -630,12 +693,30 @@ fn parsePrimary(self: *Self, allocator: std.mem.Allocator, mode: Mode) Error!ast
     switch (token.kind) {
         .ident => return .{ .literal = .{ .ident = token.value } },
         .string_lit => return .{ .literal = .{ .string = token.value } },
-        .number_lit => return .{ .literal = .{ .number = token.value } },
+        .int_lit => return .{ .literal = .{ .int = try std.fmt.parseInt(i32, token.value, 10) } },
+        .float_lit => return .{ .literal = .{ .float = try std.fmt.parseFloat(f32, token.value) } },
         .layout => {
             try self.expect(.left_brace, .script);
             const layout = try self.parseWidget(allocator);
             try self.expect(.right_brace, .script);
             return .{ .layout = layout };
+        },
+        .left_square => {
+            var members: std.ArrayList(ast.Expression) = .empty;
+            errdefer {
+                for (members.items) |m| {
+                    m.deinit(allocator);
+                }
+                members.deinit(allocator);
+            }
+            while (!self.check(.right_square)) {
+                try members.append(allocator, try self.parseExpression(allocator, 0, .script));
+                if (!self.match(.comma, .script)) {
+                    break;
+                }
+            }
+            try self.expect(.right_square, .script);
+            return .{ .literal = .{ .array = try members.toOwnedSlice(allocator) } };
         },
         else => {},
     }

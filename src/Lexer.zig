@@ -56,7 +56,6 @@ pub fn lexScript(self: *Self, char: u8) Token {
         '[' => self.makeToken(.left_square, "["),
         ']' => self.makeToken(.right_square, "]"),
         ';' => self.makeToken(.semicolon, ";"),
-        '\n' => self.makeToken(.newline, "\n"),
         ':' => self.makeToken(.colon, ":"),
         ',' => self.makeToken(.comma, ","),
         '=' => if (self.peek()) |c| switch (c) {
@@ -213,10 +212,17 @@ pub fn readNumberLit(self: *Self) Token {
             self.pos += 1;
             self.column += 1;
         }
+
+        return .{
+            .kind = .float_lit,
+            .value = self.src[start..self.pos],
+            .line = self.line,
+            .column = start_col,
+        };
     }
 
     return .{
-        .kind = .number_lit,
+        .kind = .int_lit,
         .value = self.src[start..self.pos],
         .line = self.line,
         .column = start_col,

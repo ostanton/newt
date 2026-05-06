@@ -6,6 +6,21 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     // const gpa = init.gpa;
 
+    var vm: newt.VirtualMachine = .init(&.{
+        .{ .push_i32 = 14 },
+        .{ .push_i32 = 10 },
+        .{ .div_i32 = {} },
+        .{ .print_i32 = {} },
+        .{ .push_f32 = 1216.5 },
+        .{ .push_f32 = 342.1 },
+        .{ .div_f32 = {} },
+        .{ .print_f32 = {} },
+    });
+    while (vm.ip < vm.code.len) : (vm.ip += 1) {
+        const instr = vm.code[vm.ip];
+        try vm.execute(instr);
+    }
+
     var args = try init.minimal.args.iterateAllocator(arena);
     defer args.deinit();
     _ = args.next();
@@ -79,7 +94,8 @@ fn parseScript(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void
     defer allocator.free(src);
 
     std.log.info("Parsing script '{s}'", .{path});
-    var ast = newt.script.parseString(allocator, src, path) catch |err| {
+    const class_name = std.Io.Dir.path.stem(path);
+    var ast = newt.script.parseString(allocator, src, class_name) catch |err| {
         std.log.err("Failed to parse script: {}", .{err});
         return;
     };

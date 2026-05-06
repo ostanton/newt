@@ -1,9 +1,9 @@
 VBox hi=mn
 	+ valign=centre
-	  padding=$(self.getPadding(adadada, 564, tretgre))
+	  padding=$(self.getPadding(adadada, 56.4, tretgre))
 	(Image text="Main Menu")
 + valign=fill (VBox
 	cursor=hand other=2
-	more=3 even_more=8
-	+ halign=left (Image items=[-4, -1, 7, 3])
+	more=3 even_more=8.0034000
+	+ halign=left (Image items=[-00.4, -1, 123123.7, 3])
 	+ halign=right (Image))

@@ -3,7 +3,7 @@
 
 # constant (::) like Odin
 is_debug : bool : Game.buildMode() == Game.BuildMode.debug
-timer : float; some_bool : bool = false
+timer : *[*string]**int; some_bool : bool = false
 
 # Tick override
 tick :: func(dt: float) {timer += dt}
@@ -19,7 +19,7 @@ startNewGame :: func() {
 	} else if some_bool != is_debug {
 		timer *= 5
 	} else {
-		tick(2)
+		tick(2.01)
 	}
 
 	Game.openLevel(target_level)
