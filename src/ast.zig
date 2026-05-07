@@ -350,6 +350,14 @@ pub const Declaration = union(enum) {
     func_decl: FuncDecl,
     class_decl: ClassDecl,
 
+    pub fn getIdent(self: Declaration) []const u8 {
+        return switch (self) {
+            .var_decl => |v| v.ident,
+            .func_decl => |f| f.ident,
+            .class_decl => |c| c.ident,
+        };
+    }
+
     pub fn deinit(self: Declaration, allocator: std.mem.Allocator) void {
         switch (self) {
             .var_decl => |v| v.deinit(allocator),
@@ -405,16 +413,23 @@ pub const If = struct {
 
 pub const Statement = union(enum) {
     expr: Expression,
-    var_decl: VarDecl,
+    decl: Declaration,
     @"if": If,
     @"return": Expression,
+    block: []Statement,
 
     pub fn deinit(self: Statement, allocator: std.mem.Allocator) void {
         switch (self) {
             .expr => |e| e.deinit(allocator),
-            .var_decl => |v| v.deinit(allocator),
+            .decl => |d| d.deinit(allocator),
             .@"if" => |i| i.deinit(allocator),
             .@"return" => |r| r.deinit(allocator),
+            .block => |b| {
+                for (b) |stmt| {
+                    stmt.deinit(allocator);
+                }
+                allocator.free(b);
+            },
         }
     }
 };
@@ -860,12 +875,23 @@ pub const Writer = struct {
 
     pub fn writeStatement(self: *Writer, stmt: Statement) Error!void {
         switch (stmt) {
-            .var_decl => |d| try self.writeDeclaration(.{ .var_decl = d }),
+            .decl => |d| try self.writeDeclaration(d),
             .@"return" => |r| try self.writeReturn(r),
             .expr => |e| {
                 try self.writeExpression(e);
             },
             .@"if" => |i| try self.writeIf(i),
+            .block => |b| {
+                try self.writer.writeAll("{\n");
+                self.indent_level += 1;
+                for (b) |stmt2| {
+                    try self.writeIndent();
+                    try self.writeStatement(stmt2);
+                }
+                self.indent_level -= 1;
+                try self.writeIndent();
+                try self.writer.writeAll("}");
+            },
         }
         try self.writer.writeByte('\n');
     }

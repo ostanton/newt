@@ -32,6 +32,7 @@ pub fn lexLayout(self: *Self, char: u8) Token {
         '}' => self.makeToken(.right_brace, "}"),
         ',' => self.makeToken(.comma, ","),
         '$' => self.makeToken(.dollar, "$"),
+        '@' => self.makeToken(.atsign, "@"),
         '=' => if (self.peek()) |c| switch (c) {
             '>' => self.makeTokenEx(.equal_greater_than, "=>", 2, 2),
             else => self.makeToken(.equal, "="),
@@ -58,6 +59,7 @@ pub fn lexScript(self: *Self, char: u8) Token {
         ';' => self.makeToken(.semicolon, ";"),
         ':' => self.makeToken(.colon, ":"),
         ',' => self.makeToken(.comma, ","),
+        '@' => self.makeToken(.atsign, "@"),
         '=' => if (self.peek()) |c| switch (c) {
             '=' => self.makeTokenEx(.equal_equal, "==", 2, 2),
             '>' => self.makeTokenEx(.equal_greater_than, "=>", 2, 2),

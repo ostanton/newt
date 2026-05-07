@@ -5,12 +5,18 @@ const ast = @import("ast.zig");
 
 lexer: Lexer,
 current: Token,
+scope_level: u32 = 0,
+symbols: std.ArrayList(struct {
+    scope: u32,
+    ident: []const u8,
+}) = .empty,
 
 const Self = @This();
 
 pub const Error = error{
     UnexpectedToken,
     InvalidSyntax,
+    Redefinition,
 } || std.Io.Reader.LimitedAllocError || std.fmt.ParseIntError || std.fmt.ParseFloatError;
 
 const Mode = enum {
@@ -41,18 +47,7 @@ pub fn parseStatement(self: *Self, allocator: std.mem.Allocator) Error!ast.State
                 .colon => {
                     self.advance(.script);
                     const decl = try self.parseDeclaration(allocator, ident);
-                    switch (decl) {
-                        .var_decl => |v| return .{ .var_decl = v },
-                        else => {
-                            std.log.err(
-                                "Illegal declaration in scope at line {} in column {}",
-                                .{
-                                    self.current.line, self.current.column,
-                                },
-                            );
-                            return Error.InvalidSyntax;
-                        },
-                    }
+                    return .{ .decl = decl };
                 },
                 else => {},
             }
@@ -65,6 +60,23 @@ pub fn parseStatement(self: *Self, allocator: std.mem.Allocator) Error!ast.State
                 self.advance(.script);
             }
             return .{ .@"return" = expr };
+        },
+        .left_brace => {
+            self.advance(.script);
+            self.scope_level += 1;
+            var stmts: std.ArrayList(ast.Statement) = .empty;
+            errdefer {
+                for (stmts.items) |stmt| {
+                    stmt.deinit(allocator);
+                }
+                stmts.deinit(allocator);
+            }
+            while (!self.check(.right_brace)) {
+                try stmts.append(allocator, try self.parseStatement(allocator));
+            }
+            try self.expect(.right_brace, .script);
+            self.scope_level -= 1;
+            return .{ .block = try stmts.toOwnedSlice(allocator) };
         },
         else => {},
     }
@@ -149,6 +161,20 @@ pub fn parseType(self: *Self, allocator: std.mem.Allocator) Error!?ast.Type {
 }
 
 pub fn parseDeclaration(self: *Self, allocator: std.mem.Allocator, ident: []const u8) Error!ast.Declaration {
+    for (self.symbols.items) |symbol| {
+        if (symbol.scope <= self.scope_level and std.mem.eql(u8, symbol.ident, ident)) {
+            std.log.err(
+                "Redefinition of symbol '{s}' on line {}",
+                .{
+                    symbol.ident,
+                    self.current.line,
+                },
+            );
+            return Error.Redefinition;
+        }
+    }
+    try self.symbols.append(allocator, .{ .scope = self.scope_level, .ident = ident });
+
     try self.expect(.colon, .script);
 
     const typename: ?ast.Type = try self.parseType(allocator);
@@ -233,6 +259,7 @@ pub fn parseFuncDecl(self: *Self, allocator: std.mem.Allocator, ident: []const u
     const return_type: ?ast.Type = try self.parseType(allocator);
 
     try self.expect(.left_brace, .script);
+    self.scope_level += 1;
     var body: std.ArrayList(ast.Statement) = .empty;
     errdefer {
         for (body.items) |stmt| {
@@ -244,6 +271,7 @@ pub fn parseFuncDecl(self: *Self, allocator: std.mem.Allocator, ident: []const u
         try body.append(allocator, try self.parseStatement(allocator));
     }
     try self.expect(.right_brace, .script);
+    self.scope_level -= 1;
 
     return .{
         .ident = ident,

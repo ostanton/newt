@@ -16,6 +16,7 @@ pub const Kind = enum {
     comma,
     dot,
     dollar,
+    atsign,
     equal,
     equal_equal,
     equal_greater_than,

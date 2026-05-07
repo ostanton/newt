@@ -35,6 +35,30 @@ openSettingsMenu :: func() {
 
 createHealthWidget :: func() Widget {
 	l :: layout{VBox}
+
+	someRandomLocalFunc :: func() {
+		RandomClass :: class {
+			member : float
+
+			coolFunc :: func() {}
+		}
+	}
+
+	{
+		coolThing()
+		{
+			coolThing2()
+			{
+				andAgain()
+				openSettingsMenu2 :: func() {
+					Game.Viewport.addWidget(SettingsMenu)
+				}
+			}
+		}
+	}
+
+	openSettingsMenu2 :: func() {}
+
 	return layout {
 		HBox
 		+ valign=centre (ProgressBar
