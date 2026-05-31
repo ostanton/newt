@@ -25,7 +25,7 @@ startNewGame :: func() {
 	Game.openLevel(target_level)
 }
 
-openLoadSaveMenu :: func() {
+openLoadSaveMenu :: func(some_param: []*bool) {
 	Game.Viewport.addWidget(LoadSaveMenu)
 }
 

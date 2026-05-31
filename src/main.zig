@@ -106,4 +106,8 @@ fn parseScript(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void
     var writer: std.Io.File.Writer = .init(.stdout(), io, &buffer);
     try newt.ast.writeAst(&writer.interface, ast);
     try writer.flush();
+
+    std.log.info("\nTranspiling to C++", .{});
+    try newt.transpile(&writer.interface, ast);
+    try writer.flush();
 }

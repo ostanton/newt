@@ -252,7 +252,7 @@ pub fn parseFuncDecl(self: *Self, allocator: std.mem.Allocator, ident: []const u
     var params: std.ArrayList(ast.FuncDecl.Param) = .empty;
     errdefer params.deinit(allocator);
     while (!self.check(.right_bracket)) {
-        try params.append(allocator, try self.parseFuncParam());
+        try params.append(allocator, try self.parseFuncParam(allocator));
     }
     try self.expect(.right_bracket, .script);
 
@@ -281,7 +281,7 @@ pub fn parseFuncDecl(self: *Self, allocator: std.mem.Allocator, ident: []const u
     };
 }
 
-pub fn parseFuncParam(self: *Self) Error!ast.FuncDecl.Param {
+pub fn parseFuncParam(self: *Self, allocator: std.mem.Allocator) Error!ast.FuncDecl.Param {
     if (!self.check(.ident)) {
         return Error.UnexpectedToken;
     }
@@ -291,16 +291,23 @@ pub fn parseFuncParam(self: *Self) Error!ast.FuncDecl.Param {
 
     try self.expect(.colon, .script);
 
-    if (!self.check(.ident)) {
-        return Error.UnexpectedToken;
-    }
-    const typename = self.current.value;
-    self.advance(.script);
+    const param_type = try self.parseType(allocator);
 
-    return .{
-        .ident = ident,
-        .type = typename,
-    };
+    if (param_type) |p| {
+        return .{
+            .ident = ident,
+            .type = p,
+        };
+    }
+
+    std.log.err(
+        "Invalid type function parameter type on line {} in column {}",
+        .{
+            self.current.line,
+            self.current.column,
+        },
+    );
+    return Error.InvalidSyntax;
 }
 
 pub fn parseClassDecl(self: *Self, allocator: std.mem.Allocator, ident: []const u8) Error!ast.ClassDecl {

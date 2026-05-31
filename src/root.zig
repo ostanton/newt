@@ -1,6 +1,7 @@
 const std = @import("std");
 const Parser = @import("Parser.zig");
 const Compiler = @import("Compiler.zig");
+const Transpiler = @import("Transpiler.zig");
 
 pub const VirtualMachine = @import("VirtualMachine.zig");
 pub const ast = @import("ast.zig");
@@ -20,3 +21,7 @@ pub const script = struct {
         return parser.parseClassBody(allocator, class_name);
     }
 };
+
+pub fn transpile(writer: *std.Io.Writer, class_decl: ast.ClassDecl) !void {
+    try Transpiler.emitClassDecl(writer, class_decl);
+}

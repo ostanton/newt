@@ -310,11 +310,14 @@ pub const FuncDecl = struct {
 
     pub const Param = struct {
         ident: []const u8,
-        type: []const u8,
+        type: Type,
     };
 
     pub fn deinit(self: FuncDecl, allocator: std.mem.Allocator) void {
         if (self.params) |params| {
+            for (params) |param| {
+                param.type.deinit(allocator);
+            }
             allocator.free(params);
         }
 
@@ -771,7 +774,8 @@ pub const Writer = struct {
         try self.writer.print("{s} :: func(", .{func_decl.ident});
         if (func_decl.params) |params| {
             for (params, 0..) |param, i| {
-                try self.writer.print("{s}: {s}", .{ param.ident, param.type });
+                try self.writer.print("{s}: ", .{param.ident});
+                try self.writeType(param.type);
                 if (i + 1 < params.len) {
                     try self.writer.writeAll(", ");
                 }
